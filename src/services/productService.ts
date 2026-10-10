@@ -8,6 +8,7 @@ import {
 } from '../types/product';
 import { MATERIAL_IMAGES, resolveMaterialImage } from '../assets/materialImages';
 import { getStoredAdminToken } from '../context/AuthContext';
+export const API_BASE_URL = 'https://metapro-enterprises-api.onrender.com';
 
 
 
