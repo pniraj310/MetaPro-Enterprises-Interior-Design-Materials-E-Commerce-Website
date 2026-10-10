@@ -130,7 +130,7 @@ export async function fetchAISpecifier(
   projectContext?: string
 ): Promise<AISpecifierResponse> {
   try {
-    const res = await fetch('/api/ai/specifier', {
+    const res = await fetch('${API_BASE_URL}/api/ai/specifier', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -156,7 +156,7 @@ export async function fetchAISpecifier(
 
 export async function fetchAISuggestions(query: string): Promise<string[]> {
   try {
-    const res = await fetch('/api/ai/autocomplete', {
+    const res = await fetch('${API_BASE_URL}/api/ai/autocomplete', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

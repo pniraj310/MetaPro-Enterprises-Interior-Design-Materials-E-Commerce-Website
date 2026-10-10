@@ -68,7 +68,7 @@ export const AuthProvider: React.FC<{
       return;
     }
 
-    fetch('/api/auth/verify', {
+    fetch('${API_BASE_URL}/api/auth/verify', {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -111,7 +111,7 @@ export const AuthProvider: React.FC<{
         usernameLength: cleanUsername.length,
       });
 
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch('${API_BASE_URL}/api/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

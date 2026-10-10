@@ -27,7 +27,7 @@ export interface SupportChatResponse {
 export const aiChatService = {
   async sendMessage(params: SupportChatRequest): Promise<SupportChatResponse> {
     try {
-      const response = await fetch('/api/ai/support-chat', {
+      const response = await fetch('${API_BASE_URL}/api/ai/support-chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -94,7 +94,7 @@ export const loadRazorpayScript = (): Promise<boolean> => {
  * and calls Razorpay Orders API.
  */
 export async function createRazorpayOrder(payload: CreateOrderPayload): Promise<CreateOrderResponse> {
-  const response = await fetch('/api/payments/create-order', {
+  const response = await fetch('${API_BASE_URL}/api/payments/create-order', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -115,7 +115,7 @@ export async function createRazorpayOrder(payload: CreateOrderPayload): Promise<
  * Verifies razorpay_order_id + "|" + razorpay_payment_id against RAZORPAY_KEY_SECRET.
  */
 export async function verifyRazorpayPayment(payload: VerifyPaymentPayload): Promise<VerifyPaymentResponse> {
-  const response = await fetch('/api/payments/verify', {
+  const response = await fetch('${API_BASE_URL}/api/payments/verify', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -180,7 +180,7 @@ export async function requestPaymentRefund(paymentId: string, amount?: number, r
  * Admin: Fetch Payment Gateway Settings & status
  */
 export async function fetchPaymentSettings(): Promise<PaymentSettingsInfo> {
-  const response = await fetch('/api/admin/payment-settings');
+  const response = await fetch('${API_BASE_URL}/api/admin/payment-settings');
   if (!response.ok) {
     throw new Error('Failed to fetch payment settings');
   }

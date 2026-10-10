@@ -8,7 +8,8 @@ import {
 } from '../types/product';
 import { MATERIAL_IMAGES, resolveMaterialImage } from '../assets/materialImages';
 import { getStoredAdminToken } from '../context/AuthContext';
-const API_BASE_URL = 'https://metapro-enterprises-api.onrender.com';
+
+
 
 export const DEFAULT_WHATSAPP_NUMBER = '917666323894';
 
@@ -777,7 +778,7 @@ export const productService = {
   // ============================================================================
 
   async fetchAllFromApi(): Promise<Product[]> {
-    const res = await fetch('/api/products');
+    const res = await fetch('${API_BASE_URL}/api/products');
     if (!res.ok) {
       throw new Error(`Failed to fetch products: HTTP ${res.status}`);
     }
@@ -794,7 +795,7 @@ export const productService = {
   },
 
   async createInApi(data: ProductFormData): Promise<Product> {
-    const res = await fetch('/api/products', {
+    const res = await fetch('${API_BASE_URL}/api/products', {
       method: 'POST',
       headers: getAdminHeaders(),
       body: JSON.stringify(data),
@@ -856,7 +857,7 @@ export const productService = {
   },
 
   async resetDefaultsInApi(): Promise<Product[]> {
-    const res = await fetch('/api/products/reset', {
+    const res = await fetch('${API_BASE_URL}/api/products/reset', {
       method: 'POST',
       headers: getAdminHeaders(),
     });
@@ -870,7 +871,7 @@ export const productService = {
   // ============================================================================
 
   async fetchCategoriesFromApi(): Promise<CategoryItem[]> {
-    const res = await fetch('/api/categories');
+    const res = await fetch('${API_BASE_URL}/api/categories');
     if (!res.ok) throw new Error('Failed to fetch categories');
     return await res.json();
   },
@@ -881,7 +882,7 @@ export const productService = {
     image?: string;
     active?: boolean;
   }): Promise<CategoryItem> {
-    const res = await fetch('/api/categories', {
+    const res = await fetch('${API_BASE_URL}/api/categories', {
       method: 'POST',
       headers: getAdminHeaders(),
       body: JSON.stringify(data),
@@ -929,7 +930,7 @@ export const productService = {
   // ============================================================================
 
   async fetchSettingsFromApi(): Promise<BusinessSettingsData> {
-    const res = await fetch('/api/settings');
+    const res = await fetch('${API_BASE_URL}/api/settings');
     if (!res.ok) return currentSettingsCache;
     const data = await res.json();
     currentSettingsCache = { ...DEFAULT_BUSINESS_SETTINGS, ...data };
@@ -939,7 +940,7 @@ export const productService = {
   async updateSettingsInApi(
     data: Partial<BusinessSettingsData>
   ): Promise<BusinessSettingsData> {
-    const res = await fetch('/api/settings', {
+    const res = await fetch('${API_BASE_URL}/api/settings', {
       method: 'PUT',
       headers: getAdminHeaders(),
       body: JSON.stringify(data),
@@ -999,7 +1000,7 @@ export const productService = {
           price: it.product.price,
         })),
       };
-      const res = await fetch('/api/enquiries', {
+      const res = await fetch('${API_BASE_URL}/api/enquiries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -1015,7 +1016,7 @@ export const productService = {
 
   async fetchEnquiriesFromApi(): Promise<EnquiryRecord[]> {
     try {
-      const res = await fetch('/api/enquiries');
+      const res = await fetch('${API_BASE_URL}/api/enquiries');
       if (res.ok) {
         return await res.json();
       }

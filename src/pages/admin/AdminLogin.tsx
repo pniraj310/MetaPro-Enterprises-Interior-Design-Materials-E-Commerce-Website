@@ -54,7 +54,7 @@ export const AdminLogin: React.FC = () => {
     try {
       const result = await signInWithPopup(auth, googleAuthProvider);
       const idToken = await result.user.getIdToken();
-      const res = await fetch('/api/users/sync', {
+      const res = await fetch('${API_BASE_URL}/api/users/sync', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${idToken}`,
