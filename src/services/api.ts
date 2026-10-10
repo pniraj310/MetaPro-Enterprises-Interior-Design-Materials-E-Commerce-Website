@@ -10,7 +10,7 @@
 
 import { Product, ProductFormData, Order, OrderCustomerDetails } from '../types/product';
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
+export const API_BASE_URL = 'https://metapro-enterprises-api.onrender.com';
 
 // Toggle between localStorage MVP and Spring Boot REST API
 export const USE_SPRING_BOOT_API = import.meta.env.VITE_USE_SPRING_BOOT === 'true';
