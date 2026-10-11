@@ -206,14 +206,16 @@ async function startServer() {
     next();
   });
 
-  // Capture rawBody for cryptographic webhook HMAC verification
+  // Capture rawBody for cryptographic webhook HMAC verification, allow high-res photo uploads
   app.use(
     express.json({
+      limit: '25mb',
       verify: (req: any, _res, buf) => {
         req.rawBody = buf;
       },
     })
   );
+  app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
   // Serve generated images from src/assets/images at /assets/images
   app.use('/assets/images', express.static(path.resolve(__dirname, 'src/assets/images')));

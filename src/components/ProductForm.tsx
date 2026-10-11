@@ -10,6 +10,11 @@ import {
   Star,
   Image as ImageIcon,
   Check,
+  Upload,
+  Link2,
+  Camera,
+  FolderUp,
+  Loader2,
 } from 'lucide-react';
 
 interface ProductFormProps {
@@ -134,6 +139,88 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       setFeatured(false);
     }
   }, [initialData]);
+
+  // Device File Upload Handlers (Phone / Laptop / Tablet with automatic image compression)
+  const [isUploadingMain, setIsUploadingMain] = useState(false);
+  const [isUploadingExtras, setIsUploadingExtras] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const compressAndReadImage = (file: File, maxDim = 1200, quality = 0.85): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      if (!file.type.startsWith('image/')) {
+        reject(new Error('Please select an image file (JPG, PNG, WEBP).'));
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(e.target?.result as string);
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/jpeg', quality);
+          resolve(dataUrl);
+        };
+        img.onerror = () => reject(new Error('Failed to read selected image.'));
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = () => reject(new Error('Failed to read file from your device.'));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleMainImageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setIsUploadingMain(true);
+    setUploadError(null);
+    try {
+      const dataUrl = await compressAndReadImage(files[0]);
+      setMainImage(dataUrl);
+      if (errors.image) setErrors({ ...errors, image: '' });
+    } catch (err: any) {
+      setUploadError(err.message || 'Error uploading file from device');
+    } finally {
+      setIsUploadingMain(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleAdditionalImagesFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setIsUploadingExtras(true);
+    setUploadError(null);
+    try {
+      const converted: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const dataUrl = await compressAndReadImage(files[i]);
+        converted.push(dataUrl);
+      }
+      setAdditionalImages((prev) => [...prev, ...converted]);
+    } catch (err: any) {
+      setUploadError(err.message || 'Error uploading files from device');
+    } finally {
+      setIsUploadingExtras(false);
+      e.target.value = '';
+    }
+  };
 
   // Multi-Image Handlers
   const handleAddAdditionalImage = () => {
@@ -419,13 +506,20 @@ export const ProductForm: React.FC<ProductFormProps> = ({
           </p>
         </div>
 
+        {uploadError && (
+          <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{uploadError}</span>
+          </div>
+        )}
+
         {/* Main Image Input & Preview */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-start">
           <div className="md:col-span-4">
             <span className="block text-xs font-semibold text-stone-700 mb-1.5">
-              Main Product Image
+              Main Product Image Preview
             </span>
-            <div className="aspect-4/3 rounded-xl border-2 border-[#08142C] overflow-hidden bg-stone-100 relative">
+            <div className="aspect-4/3 rounded-xl border-2 border-[#08142C] overflow-hidden bg-stone-100 relative shadow-xs">
               <img
                 src={mainImage}
                 alt="Main Product Preview"
@@ -436,26 +530,70 @@ export const ProductForm: React.FC<ProductFormProps> = ({
                 Main Image
               </span>
             </div>
+            {mainImage.startsWith('data:image') && (
+              <p className="mt-1.5 text-[11px] text-emerald-700 font-medium flex items-center gap-1">
+                <Check className="w-3.5 h-3.5" /> Uploaded from your local device
+              </p>
+            )}
           </div>
 
           <div className="md:col-span-8 space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-stone-700 mb-1">
-                Main Image URL *
-              </label>
-              <input
-                type="text"
-                value={mainImage}
-                onChange={(e) => setMainImage(e.target.value)}
-                placeholder="Paste image URL or select a studio image preset below"
-                className="w-full px-3.5 py-2 rounded-lg border border-stone-300 text-xs sm:text-sm focus:outline-none focus:border-[#08142C]"
-              />
+            {/* Dual Input: Local File Upload & URL Link */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Option A: Upload from Phone / Laptop */}
+              <div className="p-3.5 rounded-lg border border-stone-200 bg-stone-50 hover:bg-stone-100/70 transition-colors">
+                <div className="flex items-center gap-2 mb-2">
+                  <Upload className="w-4 h-4 text-[#08142C]" />
+                  <span className="text-xs font-bold text-stone-900">Upload from Device</span>
+                </div>
+                <p className="text-[11px] text-stone-500 mb-3">
+                  Select a photo from your phone gallery, camera, or computer files.
+                </p>
+                <label className="inline-flex items-center justify-center gap-2 w-full py-2 px-3 rounded-lg bg-[#08142C] text-white text-xs font-semibold hover:bg-stone-800 transition-colors cursor-pointer shadow-xs">
+                  {isUploadingMain ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[#EAB01E]" />
+                      <span>Compressing Photo...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Camera className="w-3.5 h-3.5 text-[#EAB01E]" />
+                      <span>Choose Main Image File</span>
+                    </>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleMainImageFileUpload}
+                    disabled={isUploadingMain}
+                    className="sr-only"
+                  />
+                </label>
+              </div>
+
+              {/* Option B: Enter Image URL */}
+              <div className="p-3.5 rounded-lg border border-stone-200 bg-stone-50">
+                <div className="flex items-center gap-2 mb-2">
+                  <Link2 className="w-4 h-4 text-[#08142C]" />
+                  <span className="text-xs font-bold text-stone-900">Or Paste Image URL</span>
+                </div>
+                <p className="text-[11px] text-stone-500 mb-2">
+                  Direct link from CDN, Google Drive, or web address.
+                </p>
+                <input
+                  type="text"
+                  value={mainImage.startsWith('data:image') ? '' : mainImage}
+                  onChange={(e) => setMainImage(e.target.value)}
+                  placeholder="https://example.com/photo.jpg"
+                  className="w-full px-3 py-1.5 rounded-lg border border-stone-300 bg-white text-xs focus:outline-none focus:border-[#08142C]"
+                />
+              </div>
             </div>
 
             {/* Quick Studio Image Selector for Main or Additional Images */}
             <div>
               <span className="block text-[11px] font-semibold uppercase tracking-wider text-stone-500 mb-2">
-                Studio Material Photography Presets (Click to Set Main or + Add to Gallery)
+                Quick Photography Presets (Or Click to Set Main)
               </span>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 {STUDIO_IMAGE_PRESETS.map((preset) => (
@@ -499,39 +637,65 @@ export const ProductForm: React.FC<ProductFormProps> = ({
         </div>
 
         {/* Additional Images List */}
-        <div className="pt-4 border-t border-stone-200 space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+        <div className="pt-5 border-t border-stone-200 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <span className="block text-xs font-semibold text-stone-800">
-                Additional Product Images ({additionalImages.length})
+                Additional Product Gallery Photos ({additionalImages.length})
               </span>
               <span className="text-[11px] text-stone-500">
-                Add multiple angles or close-up texture photos for this product
+                Upload extra angles, textures, or dimension diagrams from your phone/computer or paste links.
               </span>
             </div>
 
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <input
-                type="text"
-                value={newImageUrl}
-                onChange={(e) => setNewImageUrl(e.target.value)}
-                placeholder="Paste additional image URL..."
-                className="flex-1 sm:w-64 px-3 py-1.5 rounded-lg border border-stone-300 text-xs focus:outline-none focus:border-[#08142C]"
-              />
-              <button
-                type="button"
-                onClick={handleAddAdditionalImage}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#08142C] text-white text-xs font-medium hover:bg-stone-800 cursor-pointer shrink-0"
-              >
-                <Plus className="w-3.5 h-3.5 text-[#EAB01E]" />
-                <span>+ Add Image</span>
-              </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Device Upload for Gallery Photos */}
+              <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-stone-300 bg-white text-stone-800 text-xs font-semibold hover:bg-stone-100 transition-colors cursor-pointer shadow-2xs">
+                {isUploadingExtras ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#08142C]" />
+                    <span>Uploading...</span>
+                  </>
+                ) : (
+                  <>
+                    <FolderUp className="w-3.5 h-3.5 text-[#08142C]" />
+                    <span>Upload Device Photos</span>
+                  </>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleAdditionalImagesFileUpload}
+                  disabled={isUploadingExtras}
+                  className="sr-only"
+                />
+              </label>
+
+              {/* Paste URL for Extra Photos */}
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={newImageUrl}
+                  onChange={(e) => setNewImageUrl(e.target.value)}
+                  placeholder="Paste extra image URL..."
+                  className="w-48 sm:w-56 px-2.5 py-1.5 rounded-lg border border-stone-300 text-xs focus:outline-none focus:border-[#08142C]"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddAdditionalImage}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#08142C] text-white text-xs font-medium hover:bg-stone-800 cursor-pointer shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5 text-[#EAB01E]" />
+                  <span>+ Add URL</span>
+                </button>
+              </div>
             </div>
           </div>
 
           {additionalImages.length === 0 ? (
             <div className="p-4 rounded-lg bg-stone-50 border border-dashed border-stone-300 text-center text-xs text-stone-500">
-              No additional images added yet. Paste an image URL above or click "+ Extra" on any preset.
+              No extra gallery photos yet. Click <strong>"Upload Device Photos"</strong> to pick images from your phone or laptop, or paste an image URL.
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
