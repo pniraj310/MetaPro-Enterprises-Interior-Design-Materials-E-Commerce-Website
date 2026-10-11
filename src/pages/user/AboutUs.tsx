@@ -49,9 +49,6 @@ export const AboutUs: React.FC = () => {
   const { cart, setIsCartDrawerOpen } = useCart();
   const location = useLocation();
 
-  useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [location.pathname]);
 
   const directWhatsAppUrl = `https://wa.me/${whatsAppNumber}?text=${encodeURIComponent(
     `Hello ${settings.businessName}, I would like to discuss interior materials for my upcoming project.`

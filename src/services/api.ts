@@ -1,129 +1,190 @@
 /**
- * MetaPro Enterprises - Spring Boot REST API Client & Adapter
+ * MetaPro Enterprises — Centralized API Client & Configuration
  * 
- * This file is pre-configured to connect this React frontend to your Spring Boot
- * REST API and PostgreSQL database running locally or in production.
- * 
- * Default local URL: http://localhost:8080/api/v1
- * Configure via .env: VITE_API_BASE_URL="http://localhost:8080/api/v1"
+ * Production Backend API: https://metapro-enterprises-api.onrender.com
+ * Supports dynamic VITE_API_BASE_URL override, safe local development,
+ * and automatic production routing on Vercel deployments.
  */
 
 import { Product, ProductFormData, Order, OrderCustomerDetails } from '../types/product';
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
+/**
+ * Resolves the API base URL based on runtime environment:
+ * 1. Explicit import.meta.env.VITE_API_BASE_URL (if defined and non-empty)
+ * 2. If running on Vercel preview/production or custom domain -> https://metapro-enterprises-api.onrender.com
+ * 3. Default fallback for local development / AI Studio container -> '' (same-origin relative)
+ */
+export function getApiBaseUrl(): string {
+  const envUrl = import.meta.env.VITE_API_BASE_URL;
+  if (typeof envUrl === 'string' && envUrl.trim().length > 0) {
+    // Strip trailing slashes and common accidental placeholders
+    const cleaned = envUrl.trim().replace(/[{}]/g, '').replace(/\/+$/, '');
+    if (cleaned && !cleaned.includes('API_BASE_URL')) {
+      return cleaned;
+    }
+  }
 
-// Toggle between localStorage MVP and Spring Boot REST API
-export const USE_SPRING_BOOT_API = import.meta.env.VITE_USE_SPRING_BOOT === 'true';
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    // When running on Vercel or production domain, route requests to Render backend
+    if (
+      hostname.includes('vercel.app') ||
+      hostname === 'www.metaproenterprises.in' ||
+      hostname === 'metaproenterprises.in' ||
+      (!hostname.includes('localhost') && !hostname.includes('127.0.0.1') && !hostname.includes('run.app'))
+    ) {
+      return 'https://metapro-enterprises-api.onrender.com';
+    }
+  }
 
-// Helper for standard JSON REST requests with Bearer token support
-async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const token = localStorage.getItem('metapro_admin_token') || localStorage.getItem('metapro_customer_token');
-  
+  // Local development / AI Studio fullstack dev server
+  return '';
+}
+
+export const API_BASE_URL = getApiBaseUrl();
+
+/**
+ * Safely resolves an API endpoint path against the active base URL.
+ * Normalizes leading/trailing slashes and handles query strings.
+ */
+export function apiUrl(endpoint: string): string {
+  const base = getApiBaseUrl();
+  const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+
+  if (!base) {
+    return normalizedEndpoint;
+  }
+
+  return `${base}${normalizedEndpoint}`;
+}
+
+/**
+ * Helper to obtain authentication headers from localStorage
+ */
+export function getAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+  };
+
+  try {
+    const adminToken = localStorage.getItem('metapro_admin_token');
+    const customerToken = localStorage.getItem('metapro_customer_token');
+    const token = adminToken || customerToken;
+
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+  } catch {
+    // Ignore storage errors in restricted contexts
+  }
+
+  return headers;
+}
+
+/**
+ * Robust fetch wrapper that guarantees correct URL construction,
+ * headers, error normalization, and JSON parsing.
+ */
+export async function apiFetch<T = any>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const targetUrl = apiUrl(endpoint);
+
+  const mergedHeaders: Record<string, string> = {
+    ...getAuthHeaders(),
     ...(options.headers as Record<string, string>),
   };
 
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const response = await fetch(targetUrl, {
     ...options,
-    headers,
+    headers: mergedHeaders,
   });
 
   if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`API error ${response.status}: ${errorBody || response.statusText}`);
+    let errorDetail = response.statusText;
+    try {
+      const errJson = await response.json();
+      errorDetail = errJson.error || errJson.message || JSON.stringify(errJson);
+    } catch {
+      const errText = await response.text();
+      if (errText) errorDetail = errText;
+    }
+    throw new Error(`API Error (${response.status}): ${errorDetail}`);
+  }
+
+  // Return parsed JSON or null for 204 No Content
+  if (response.status === 204) {
+    return null as T;
   }
 
   return response.json();
 }
 
 /**
- * Spring Boot REST API Endpoints
+ * Convenience HTTP method helpers
+ */
+export const api = {
+  get: <T = any>(endpoint: string, options?: RequestInit) =>
+    apiFetch<T>(endpoint, { method: 'GET', ...options }),
+
+  post: <T = any>(endpoint: string, body?: any, options?: RequestInit) =>
+    apiFetch<T>(endpoint, {
+      method: 'POST',
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      ...options,
+    }),
+
+  put: <T = any>(endpoint: string, body?: any, options?: RequestInit) =>
+    apiFetch<T>(endpoint, {
+      method: 'PUT',
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      ...options,
+    }),
+
+  patch: <T = any>(endpoint: string, body?: any, options?: RequestInit) =>
+    apiFetch<T>(endpoint, {
+      method: 'PATCH',
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      ...options,
+    }),
+
+  delete: <T = any>(endpoint: string, options?: RequestInit) =>
+    apiFetch<T>(endpoint, { method: 'DELETE', ...options }),
+};
+
+/**
+ * Backward compatibility adapter for legacy springBootApi references
  */
 export const springBootApi = {
-  // --- Products (Public & Admin) ---
   products: {
-    // GET /api/v1/products
-    getAll: () => request<Product[]>('/products'),
-
-    // GET /api/v1/products/{id}
-    getById: (id: string) => request<Product>(`/products/${id}`),
-
-    // POST /api/v1/products (Admin only)
-    create: (data: ProductFormData) => 
-      request<Product>('/products', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
-
-    // PUT /api/v1/products/{id} (Admin only)
-    update: (id: string, data: Partial<ProductFormData>) => 
-      request<Product>(`/products/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      }),
-
-    // DELETE /api/v1/products/{id} (Admin only)
-    delete: (id: string) => 
-      request<{ success: boolean }>(`/products/${id}`, {
-        method: 'DELETE',
-      }),
-
-    // PATCH /api/v1/products/{id}/availability (Admin only)
-    toggleAvailability: (id: string) => 
-      request<Product>(`/products/${id}/availability`, {
-        method: 'PATCH',
-      }),
+    getAll: () => api.get<Product[]>('/api/products'),
+    getById: (id: string) => api.get<Product>(`/api/products/${encodeURIComponent(id)}`),
+    create: (data: ProductFormData) => api.post<Product>('/api/products', data),
+    update: (id: string, data: Partial<ProductFormData>) =>
+      api.put<Product>(`/api/products/${encodeURIComponent(id)}`, data),
+    delete: (id: string) => api.delete<{ success: boolean }>(`/api/products/${encodeURIComponent(id)}`),
+    toggleAvailability: (id: string) =>
+      api.patch<Product>(`/api/products/${encodeURIComponent(id)}/availability`),
   },
-
-  // --- Orders & Invoicing ---
   orders: {
-    // POST /api/v1/orders
     create: (orderPayload: { customer: OrderCustomerDetails; items: { productId: string; quantity: number }[] }) =>
-      request<Order>('/orders', {
-        method: 'POST',
-        body: JSON.stringify(orderPayload),
-      }),
-
-    // GET /api/v1/orders/my-orders (Customer only)
-    getCustomerOrders: () => request<Order[]>('/orders/my-orders'),
-
-    // GET /api/v1/orders (Admin only)
-    getAllOrders: () => request<Order[]>('/orders'),
-
-    // PATCH /api/v1/orders/{id}/status (Admin only)
+      api.post<Order>('/api/orders', orderPayload),
+    getCustomerOrders: () => api.get<Order[]>('/api/orders/my-orders'),
+    getAllOrders: () => api.get<Order[]>('/api/admin/payments'),
     updateStatus: (id: string, status: string) =>
-      request<Order>(`/orders/${id}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status }),
-      }),
+      api.patch<Order>(`/api/orders/${encodeURIComponent(id)}/status`, { status }),
   },
-
-  // --- Authentication ---
   auth: {
-    // POST /api/v1/auth/admin/login
     adminLogin: (credentials: { username: string; password: string }) =>
-      request<{ token: string; username: string }>('/auth/admin/login', {
-        method: 'POST',
-        body: JSON.stringify(credentials),
-      }),
-
-    // POST /api/v1/auth/customer/login
+      api.post<{ token: string; username: string }>('/api/auth/login', credentials),
     customerLogin: (credentials: { phoneOrEmail: string; password: string }) =>
-      request<{ token: string; user: any }>('/auth/customer/login', {
-        method: 'POST',
-        body: JSON.stringify(credentials),
-      }),
-
-    // POST /api/v1/auth/customer/register
+      api.post<{ token: string; user: any }>('/api/auth/login', credentials),
     customerRegister: (userData: any) =>
-      request<{ token: string; user: any }>('/auth/customer/register', {
-        method: 'POST',
-        body: JSON.stringify(userData),
-      }),
-  }
+      api.post<{ token: string; user: any }>('/api/users/sync', userData),
+  },
 };
+export const USE_SPRING_BOOT_API =
+  typeof import.meta.env.VITE_USE_SPRING_BOOT !== 'undefined'
+    ? String(import.meta.env.VITE_USE_SPRING_BOOT).toLowerCase() === 'true'
+    : true;

@@ -1,4 +1,5 @@
 import { PaymentRecord, PaymentSettingsInfo } from '../types/product';
+import { apiUrl, getAuthHeaders } from './api';
 
 export interface RazorpayPaymentSuccessData {
   razorpay_payment_id: string;
@@ -94,9 +95,10 @@ export const loadRazorpayScript = (): Promise<boolean> => {
  * and calls Razorpay Orders API.
  */
 export async function createRazorpayOrder(payload: CreateOrderPayload): Promise<CreateOrderResponse> {
-  const response = await fetch('/api/payments/create-order', {
+  const response = await fetch(apiUrl('/api/payments/create-order'), {
     method: 'POST',
     headers: {
+      ...getAuthHeaders(),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(payload),
@@ -115,9 +117,10 @@ export async function createRazorpayOrder(payload: CreateOrderPayload): Promise<
  * Verifies razorpay_order_id + "|" + razorpay_payment_id against RAZORPAY_KEY_SECRET.
  */
 export async function verifyRazorpayPayment(payload: VerifyPaymentPayload): Promise<VerifyPaymentResponse> {
-  const response = await fetch('/api/payments/verify', {
+  const response = await fetch(apiUrl('/api/payments/verify'), {
     method: 'POST',
     headers: {
+      ...getAuthHeaders(),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(payload),
@@ -145,7 +148,9 @@ export async function fetchAdminPayments(status: string = 'all', search: string 
   if (status && status !== 'all') params.append('status', status);
   if (search && search.trim()) params.append('search', search.trim());
 
-  const response = await fetch(`/api/admin/payments?${params.toString()}`);
+  const response = await fetch(apiUrl(`/api/admin/payments?${params.toString()}`), {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch payments records');
   }
@@ -161,9 +166,10 @@ export async function requestPaymentRefund(paymentId: string, amount?: number, r
   refundId: string;
   payment: PaymentRecord;
 }> {
-  const response = await fetch(`/api/admin/payments/${paymentId}/refund`, {
+  const response = await fetch(apiUrl(`/api/admin/payments/${encodeURIComponent(paymentId)}/refund`), {
     method: 'POST',
     headers: {
+      ...getAuthHeaders(),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ amount, reason }),
@@ -180,7 +186,9 @@ export async function requestPaymentRefund(paymentId: string, amount?: number, r
  * Admin: Fetch Payment Gateway Settings & status
  */
 export async function fetchPaymentSettings(): Promise<PaymentSettingsInfo> {
-  const response = await fetch('/api/admin/payment-settings');
+  const response = await fetch(apiUrl('/api/admin/payment-settings'), {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch payment settings');
   }

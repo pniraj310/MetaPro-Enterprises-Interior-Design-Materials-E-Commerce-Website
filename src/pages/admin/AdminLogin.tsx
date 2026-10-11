@@ -5,6 +5,7 @@ import { auth, googleAuthProvider } from '../../lib/firebase';
 import { useAuth } from '../../context/AuthContext';
 import { MetaProLogo } from '../../components/MetaProLogo';
 import { Lock, User, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react';
+import { apiUrl } from '../../services/api';
 
 export const AdminLogin: React.FC = () => {
   const [username, setUsername] = useState('');
@@ -54,7 +55,7 @@ export const AdminLogin: React.FC = () => {
     try {
       const result = await signInWithPopup(auth, googleAuthProvider);
       const idToken = await result.user.getIdToken();
-      const res = await fetch('/api/users/sync', {
+      const res = await fetch(apiUrl('/api/users/sync'), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${idToken}`,

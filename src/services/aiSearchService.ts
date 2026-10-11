@@ -1,3 +1,5 @@
+import { apiUrl } from './api';
+
 export interface AISpecifierRecommendation {
   productName: string;
   category: string;
@@ -130,7 +132,7 @@ export async function fetchAISpecifier(
   projectContext?: string
 ): Promise<AISpecifierResponse> {
   try {
-    const res = await fetch('/api/ai/specifier', {
+    const res = await fetch(apiUrl('/api/ai/specifier'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -156,7 +158,7 @@ export async function fetchAISpecifier(
 
 export async function fetchAISuggestions(query: string): Promise<string[]> {
   try {
-    const res = await fetch('/api/ai/autocomplete', {
+    const res = await fetch(apiUrl('/api/ai/autocomplete'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

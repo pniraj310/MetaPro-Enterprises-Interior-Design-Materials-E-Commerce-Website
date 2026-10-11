@@ -4,6 +4,7 @@ import React, {
   useState,
   useEffect,
 } from 'react';
+import { apiUrl } from '../services/api';
 
 const AUTH_TOKEN_KEY = 'metapro_admin_token';
 const AUTH_USER_KEY = 'metapro_admin_user';
@@ -68,7 +69,7 @@ export const AuthProvider: React.FC<{
       return;
     }
 
-    fetch('/api/auth/verify', {
+    fetch(apiUrl('/api/auth/verify'), {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -111,7 +112,7 @@ export const AuthProvider: React.FC<{
         usernameLength: cleanUsername.length,
       });
 
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch(apiUrl('/api/auth/login'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

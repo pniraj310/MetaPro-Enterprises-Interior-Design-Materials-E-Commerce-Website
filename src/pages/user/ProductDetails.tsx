@@ -31,7 +31,7 @@ import {
 
 export const ProductDetails: React.FC = () => {
   const { id, slug } = useParams<{ id?: string; slug?: string }>();
-  const { getProduct, products, whatsAppNumber, settings } = useProducts();
+  const { getProduct, products, whatsAppNumber, settings, isLoading } = useProducts();
   const { cart, addToCart, setIsCartDrawerOpen } = useCart();
   const { currentPincode, setPincode, pincodeInfo } = usePincode();
 
@@ -48,12 +48,37 @@ export const ProductDetails: React.FC = () => {
 
   const touchStartXRef = useRef<number | null>(null);
 
-  // Reset gallery, quantity, and scroll position whenever navigating to a different product
+  // Reset gallery and quantity whenever navigating to a different product
   useEffect(() => {
     setActiveImageIndex(0);
     setSelectedQuantity(5);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [slug, id]);
+
+  // Lightweight loading skeleton while initial products array is loading
+  if (isLoading && !product) {
+    return (
+      <div className="w-full bg-[#F1F3F6] min-h-[70vh] py-6 px-3 sm:px-6 lg:px-8 font-sans">
+        <div className="max-w-[1440px] mx-auto space-y-6">
+          <div className="h-6 w-64 bg-gray-200 rounded animate-pulse" />
+          <div className="bg-white rounded-xl border border-gray-200 p-6 sm:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <div className="lg:col-span-5 space-y-4">
+              <div className="aspect-square w-full bg-gray-100 rounded-lg animate-pulse" />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="h-12 bg-gray-200 rounded animate-pulse" />
+                <div className="h-12 bg-gray-200 rounded animate-pulse" />
+              </div>
+            </div>
+            <div className="lg:col-span-7 space-y-4">
+              <div className="h-4 w-32 bg-gray-200 rounded animate-pulse" />
+              <div className="h-8 w-3/4 bg-gray-200 rounded animate-pulse" />
+              <div className="h-16 w-full bg-gray-100 rounded animate-pulse" />
+              <div className="h-24 w-full bg-gray-100 rounded animate-pulse" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!product) {
     return (

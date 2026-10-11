@@ -1,4 +1,5 @@
 import { Product } from '../types/product';
+import { apiUrl } from './api';
 
 export interface ChatMessage {
   id: string;
@@ -21,13 +22,14 @@ export interface SupportChatResponse {
   reply: string;
   suggestedProductIds: string[];
   quickReplies: string[];
+  isLive?: boolean;
   isAiLive?: boolean;
 }
 
 export const aiChatService = {
   async sendMessage(params: SupportChatRequest): Promise<SupportChatResponse> {
     try {
-      const response = await fetch('/api/ai/support-chat', {
+      const response = await fetch(apiUrl('/api/ai/support-chat'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

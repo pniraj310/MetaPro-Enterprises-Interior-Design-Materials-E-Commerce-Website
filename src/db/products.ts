@@ -822,60 +822,125 @@ export const SEED_PRODUCTS = [
 ];
 
 // ============================================================================
+// IN-MEMORY DATA STORE (Active when Cloud SQL / PostgreSQL is offline)
+// ============================================================================
+
+let isDbConnected: boolean | null = null;
+
+function markDbOffline(err: any) {
+  if (isDbConnected !== false) {
+    console.info('Database offline or unreachable. Using in-memory fallback store:', err?.message || err);
+    isDbConnected = false;
+  }
+}
+
+// In-memory clones
+let memoryProducts: any[] = JSON.parse(JSON.stringify(SEED_PRODUCTS)).map((p: any) => ({
+  ...p,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+}));
+
+if (memoryProducts.length > 0 && !memoryProducts.some((p) => p.featured)) {
+  memoryProducts[0].featured = true;
+}
+
+let memoryCategories: any[] = JSON.parse(JSON.stringify(SEED_CATEGORIES)).map((c: any) => ({
+  ...c,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+}));
+
+let memoryBusinessSettings: any = {
+  id: 1,
+  businessName: 'MetaPro Enterprises',
+  whatsAppNumber: '917666323894',
+  businessPhone: '7666323894',
+  businessEmail: 'pdheeraj351@gmail.com',
+  businessAddress:
+    'Pili Nadi, Sunday Market, Plot No. 02, Kamptee Road, Nagpur, Maharashtra 440026, India',
+  heroHeadline: 'Materials That Shape Better Spaces.',
+  heroSubheadline:
+    'Explore interior materials, architectural wall & ceiling panels, and precision fixing hardware from MetaPro Enterprises.',
+  aboutText:
+    'MetaPro Enterprises supplies interior materials, architectural wall and ceiling panels, and installation fasteners for customers working on homes, offices, commercial spaces, and interior renovation projects.',
+  instagramUrl: '',
+  facebookUrl: '',
+  youtubeUrl: '',
+  linkedinUrl: '',
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
+let memoryAdminUsers: any[] = [];
+let memoryEnquiries: any[] = [];
+
+// ============================================================================
 // PRODUCTS REPOSITORY
 // ============================================================================
 
 export async function getAllProductsFromDb() {
-  try {
-    let existing = await db.select().from(products).orderBy(desc(products.createdAt));
-    if (existing.length < SEED_PRODUCTS.length) {
-      await db.insert(products).values(SEED_PRODUCTS).onConflictDoNothing();
-      existing = await db.select().from(products).orderBy(desc(products.createdAt));
-    }
-    // Backfill slug if missing on any existing rows
-    for (const row of existing) {
-      if (!row.slug) {
-        const generatedSlug = slugify(row.name);
+  if (isDbConnected !== false) {
+    try {
+      let existing = await db.select().from(products).orderBy(desc(products.createdAt));
+      if (existing.length < SEED_PRODUCTS.length) {
+        await db.insert(products).values(SEED_PRODUCTS).onConflictDoNothing();
+        existing = await db.select().from(products).orderBy(desc(products.createdAt));
+      }
+      // Backfill slug if missing on any existing rows
+      for (const row of existing) {
+        if (!row.slug) {
+          const generatedSlug = slugify(row.name);
+          await db
+            .update(products)
+            .set({ slug: generatedSlug })
+            .where(eq(products.id, row.id));
+          row.slug = generatedSlug;
+        }
+      }
+      // Enforce single primary featured product if multiple were previously true
+      const featuredRows = existing.filter((r) => r.featured);
+      if (featuredRows.length > 1) {
+        const keepId = featuredRows[0].id;
+        for (const extra of featuredRows.slice(1)) {
+          await db.update(products).set({ featured: false }).where(eq(products.id, extra.id));
+          extra.featured = false;
+        }
+      } else if (featuredRows.length === 0 && existing.length > 0) {
         await db
           .update(products)
-          .set({ slug: generatedSlug })
-          .where(eq(products.id, row.id));
-        row.slug = generatedSlug;
+          .set({ featured: true })
+          .where(eq(products.id, existing[0].id));
+        existing[0].featured = true;
       }
+      isDbConnected = true;
+      return existing;
+    } catch (error) {
+      markDbOffline(error);
     }
-    // Enforce single primary featured product if multiple were previously true
-    const featuredRows = existing.filter((r) => r.featured);
-    if (featuredRows.length > 1) {
-      const keepId = featuredRows[0].id;
-      for (const extra of featuredRows.slice(1)) {
-        await db.update(products).set({ featured: false }).where(eq(products.id, extra.id));
-        extra.featured = false;
-      }
-    } else if (featuredRows.length === 0 && existing.length > 0) {
-      await db
-        .update(products)
-        .set({ featured: true })
-        .where(eq(products.id, existing[0].id));
-      existing[0].featured = true;
-    }
-    return existing;
-  } catch (error) {
-    console.error('Database query failed in getAllProductsFromDb:', error);
-    throw new Error('Failed to load products from database.', { cause: error });
   }
+
+  return [...memoryProducts];
 }
 
 export async function getProductByIdFromDb(idOrSlug: string) {
-  try {
-    const rows = await db
-      .select()
-      .from(products)
-      .where(or(eq(products.id, idOrSlug), eq(products.slug, idOrSlug)));
-    return rows[0] || null;
-  } catch (error) {
-    console.error('Database query failed in getProductByIdFromDb:', error);
-    throw new Error('Failed to fetch product details.', { cause: error });
+  if (isDbConnected !== false) {
+    try {
+      const rows = await db
+        .select()
+        .from(products)
+        .where(or(eq(products.id, idOrSlug), eq(products.slug, idOrSlug)));
+      isDbConnected = true;
+      if (rows.length > 0) return rows[0];
+    } catch (error) {
+      markDbOffline(error);
+    }
   }
+
+  const found = memoryProducts.find(
+    (p) => p.id === idOrSlug || p.slug === idOrSlug
+  );
+  return found || null;
 }
 
 export async function createProductInDb(data: {
@@ -900,49 +965,55 @@ export async function createProductInDb(data: {
   applications?: string[];
   featured?: boolean;
 }) {
-  try {
-    const id =
-      data.id ||
-      `mp-prod-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
-    const slug = data.slug || slugify(data.name) || id;
+  const id =
+    data.id ||
+    `mp-prod-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+  const slug = data.slug || slugify(data.name) || id;
+  const newProduct = {
+    id,
+    slug,
+    name: data.name,
+    description: data.description,
+    category: data.category,
+    categoryId: data.categoryId || slugify(data.category),
+    brand: data.brand || 'MetaPro',
+    price: Math.round(Number(data.price) || 0),
+    salePrice: data.salePrice
+      ? Math.round(Number(data.salePrice))
+      : Math.round(Number(data.price) || 0),
+    sku: data.sku || `MP-${Date.now().toString().slice(-5)}`,
+    stock: typeof data.stock === 'number' ? data.stock : 50,
+    minOrderQuantity: typeof data.minOrderQuantity === 'number' ? data.minOrderQuantity : 1,
+    unit: data.unit || 'Piece',
+    image: data.image,
+    images: data.images && data.images.length > 0 ? data.images : [data.image],
+    availability: data.availability || 'Available',
+    active: data.active !== undefined ? Boolean(data.active) : true,
+    specifications: Array.isArray(data.specifications) ? data.specifications : [],
+    applications: Array.isArray(data.applications) ? data.applications : [],
+    featured: Boolean(data.featured),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
 
-    // Single Featured Product rule: if this new product is featured, unfeature previous
-    if (data.featured) {
-      await db.update(products).set({ featured: false });
+  if (isDbConnected !== false) {
+    try {
+      if (data.featured) {
+        await db.update(products).set({ featured: false });
+      }
+      const result = await db.insert(products).values(newProduct).returning();
+      isDbConnected = true;
+      return result[0];
+    } catch (error) {
+      markDbOffline(error);
     }
-
-    const result = await db
-      .insert(products)
-      .values({
-        id,
-        slug,
-        name: data.name,
-        description: data.description,
-        category: data.category,
-        categoryId: data.categoryId || slugify(data.category),
-        brand: data.brand || 'MetaPro',
-        price: Math.round(Number(data.price) || 0),
-        salePrice: data.salePrice
-          ? Math.round(Number(data.salePrice))
-          : Math.round(Number(data.price) || 0),
-        sku: data.sku || `MP-${Date.now().toString().slice(-5)}`,
-        stock: typeof data.stock === 'number' ? data.stock : 50,
-        minOrderQuantity: typeof data.minOrderQuantity === 'number' ? data.minOrderQuantity : 1,
-        unit: data.unit || 'Piece',
-        image: data.image,
-        images: data.images && data.images.length > 0 ? data.images : [data.image],
-        availability: data.availability || 'Available',
-        active: data.active !== undefined ? Boolean(data.active) : true,
-        specifications: Array.isArray(data.specifications) ? data.specifications : [],
-        applications: Array.isArray(data.applications) ? data.applications : [],
-        featured: Boolean(data.featured),
-      })
-      .returning();
-    return result[0];
-  } catch (error) {
-    console.error('Database insert failed in createProductInDb:', error);
-    throw new Error('Failed to create product in database.', { cause: error });
   }
+
+  if (data.featured) {
+    memoryProducts.forEach((p) => (p.featured = false));
+  }
+  memoryProducts.unshift(newProduct);
+  return newProduct;
 }
 
 export async function updateProductInDb(
@@ -969,101 +1040,152 @@ export async function updateProductInDb(
     featured: boolean;
   }>
 ) {
-  try {
-    // Single Featured Product rule: if setting featured=true, clear all others first
-    if (data.featured === true) {
-      await db.update(products).set({ featured: false });
-    }
+  if (isDbConnected !== false) {
+    try {
+      if (data.featured === true) {
+        await db.update(products).set({ featured: false });
+      }
 
-    const updatePayload: Record<string, any> = { updatedAt: new Date() };
-    if (data.name !== undefined) {
-      updatePayload.name = data.name;
-      if (!data.slug) updatePayload.slug = slugify(data.name);
-    }
-    if (data.slug !== undefined) updatePayload.slug = data.slug;
-    if (data.description !== undefined) updatePayload.description = data.description;
-    if (data.category !== undefined) updatePayload.category = data.category;
-    if (data.categoryId !== undefined) updatePayload.categoryId = data.categoryId;
-    if (data.brand !== undefined) updatePayload.brand = data.brand;
-    if (data.price !== undefined) updatePayload.price = Math.round(Number(data.price) || 0);
-    if (data.salePrice !== undefined)
-      updatePayload.salePrice = Math.round(Number(data.salePrice) || 0);
-    if (data.sku !== undefined) updatePayload.sku = data.sku;
-    if (data.stock !== undefined) updatePayload.stock = Math.round(Number(data.stock) || 0);
-    if (data.minOrderQuantity !== undefined)
-      updatePayload.minOrderQuantity = Math.round(Number(data.minOrderQuantity) || 1);
-    if (data.unit !== undefined) updatePayload.unit = data.unit;
-    if (data.image !== undefined) updatePayload.image = data.image;
-    if (data.images !== undefined) updatePayload.images = data.images;
-    if (data.availability !== undefined) updatePayload.availability = data.availability;
-    if (data.active !== undefined) updatePayload.active = Boolean(data.active);
-    if (data.specifications !== undefined) updatePayload.specifications = data.specifications;
-    if (data.applications !== undefined) updatePayload.applications = data.applications;
-    if (data.featured !== undefined) updatePayload.featured = Boolean(data.featured);
+      const updatePayload: Record<string, any> = { updatedAt: new Date() };
+      if (data.name !== undefined) {
+        updatePayload.name = data.name;
+        if (!data.slug) updatePayload.slug = slugify(data.name);
+      }
+      if (data.slug !== undefined) updatePayload.slug = data.slug;
+      if (data.description !== undefined) updatePayload.description = data.description;
+      if (data.category !== undefined) updatePayload.category = data.category;
+      if (data.categoryId !== undefined) updatePayload.categoryId = data.categoryId;
+      if (data.brand !== undefined) updatePayload.brand = data.brand;
+      if (data.price !== undefined) updatePayload.price = Math.round(Number(data.price) || 0);
+      if (data.salePrice !== undefined)
+        updatePayload.salePrice = Math.round(Number(data.salePrice) || 0);
+      if (data.sku !== undefined) updatePayload.sku = data.sku;
+      if (data.stock !== undefined) updatePayload.stock = Math.round(Number(data.stock) || 0);
+      if (data.minOrderQuantity !== undefined)
+        updatePayload.minOrderQuantity = Math.round(Number(data.minOrderQuantity) || 1);
+      if (data.unit !== undefined) updatePayload.unit = data.unit;
+      if (data.image !== undefined) updatePayload.image = data.image;
+      if (data.images !== undefined) updatePayload.images = data.images;
+      if (data.availability !== undefined) updatePayload.availability = data.availability;
+      if (data.active !== undefined) updatePayload.active = Boolean(data.active);
+      if (data.specifications !== undefined) updatePayload.specifications = data.specifications;
+      if (data.applications !== undefined) updatePayload.applications = data.applications;
+      if (data.featured !== undefined) updatePayload.featured = Boolean(data.featured);
 
-    const result = await db
-      .update(products)
-      .set(updatePayload)
-      .where(eq(products.id, id))
-      .returning();
-    return result[0] || null;
-  } catch (error) {
-    console.error('Database update failed in updateProductInDb:', error);
-    throw new Error('Failed to update product in database.', { cause: error });
+      const result = await db
+        .update(products)
+        .set(updatePayload)
+        .where(eq(products.id, id))
+        .returning();
+      isDbConnected = true;
+      if (result.length > 0) return result[0];
+    } catch (error) {
+      markDbOffline(error);
+    }
   }
+
+  const idx = memoryProducts.findIndex((p) => p.id === id);
+  if (idx === -1) return null;
+  if (data.featured === true) {
+    memoryProducts.forEach((p) => (p.featured = false));
+  }
+  const current = memoryProducts[idx];
+  const updated = {
+    ...current,
+    ...data,
+    slug: data.slug || (data.name ? slugify(data.name) : current.slug),
+    price: data.price !== undefined ? Math.round(Number(data.price) || 0) : current.price,
+    salePrice: data.salePrice !== undefined ? Math.round(Number(data.salePrice) || 0) : current.salePrice,
+    updatedAt: new Date(),
+  };
+  memoryProducts[idx] = updated;
+  return updated;
 }
 
 export async function setFeaturedProductInDb(id: string) {
-  try {
-    await db.update(products).set({ featured: false });
-    const result = await db
-      .update(products)
-      .set({ featured: true, updatedAt: new Date() })
-      .where(eq(products.id, id))
-      .returning();
-    return result[0] || null;
-  } catch (error) {
-    console.error('Database update failed in setFeaturedProductInDb:', error);
-    throw new Error('Failed to set featured product.', { cause: error });
+  if (isDbConnected !== false) {
+    try {
+      await db.update(products).set({ featured: false });
+      const result = await db
+        .update(products)
+        .set({ featured: true, updatedAt: new Date() })
+        .where(eq(products.id, id))
+        .returning();
+      isDbConnected = true;
+      if (result.length > 0) return result[0];
+    } catch (error) {
+      markDbOffline(error);
+    }
   }
+
+  memoryProducts.forEach((p) => (p.featured = false));
+  const target = memoryProducts.find((p) => p.id === id);
+  if (!target) return null;
+  target.featured = true;
+  target.updatedAt = new Date();
+  return target;
 }
 
 export async function toggleProductAvailabilityInDb(id: string) {
-  try {
-    const existing = await getProductByIdFromDb(id);
-    if (!existing) return null;
-    const nextStatus = existing.availability === 'Available' ? 'Out of Stock' : 'Available';
-    const result = await db
-      .update(products)
-      .set({ availability: nextStatus, updatedAt: new Date() })
-      .where(eq(products.id, existing.id))
-      .returning();
-    return result[0] || null;
-  } catch (error) {
-    console.error('Database toggle availability failed:', error);
-    throw new Error('Failed to toggle product availability.', { cause: error });
+  if (isDbConnected !== false) {
+    try {
+      const existing = await getProductByIdFromDb(id);
+      if (!existing) return null;
+      const nextStatus = existing.availability === 'Available' ? 'Out of Stock' : 'Available';
+      const result = await db
+        .update(products)
+        .set({ availability: nextStatus, updatedAt: new Date() })
+        .where(eq(products.id, existing.id))
+        .returning();
+      isDbConnected = true;
+      if (result.length > 0) return result[0];
+    } catch (error) {
+      markDbOffline(error);
+    }
   }
+
+  const target = memoryProducts.find((p) => p.id === id);
+  if (!target) return null;
+  target.availability = target.availability === 'Available' ? 'Out of Stock' : 'Available';
+  target.updatedAt = new Date();
+  return target;
 }
 
 export async function deleteProductFromDb(id: string) {
-  try {
-    const deleted = await db.delete(products).where(eq(products.id, id)).returning();
-    return deleted.length > 0;
-  } catch (error) {
-    console.error('Database delete failed in deleteProductFromDb:', error);
-    throw new Error('Failed to delete product from database.', { cause: error });
+  if (isDbConnected !== false) {
+    try {
+      const deleted = await db.delete(products).where(eq(products.id, id)).returning();
+      isDbConnected = true;
+      return deleted.length > 0;
+    } catch (error) {
+      markDbOffline(error);
+    }
   }
+
+  const prevLen = memoryProducts.length;
+  memoryProducts = memoryProducts.filter((p) => p.id !== id);
+  return memoryProducts.length < prevLen;
 }
 
 export async function resetProductsInDb() {
-  try {
-    await db.delete(products);
-    const inserted = await db.insert(products).values(SEED_PRODUCTS).returning();
-    return inserted;
-  } catch (error) {
-    console.error('Database reset failed in resetProductsInDb:', error);
-    throw new Error('Failed to reset products in database.', { cause: error });
+  if (isDbConnected !== false) {
+    try {
+      await db.delete(products);
+      const inserted = await db.insert(products).values(SEED_PRODUCTS).returning();
+      isDbConnected = true;
+      return inserted;
+    } catch (error) {
+      markDbOffline(error);
+    }
   }
+
+  memoryProducts = JSON.parse(JSON.stringify(SEED_PRODUCTS)).map((p: any) => ({
+    ...p,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }));
+  if (memoryProducts.length > 0) memoryProducts[0].featured = true;
+  return memoryProducts;
 }
 
 // ============================================================================
@@ -1071,17 +1193,21 @@ export async function resetProductsInDb() {
 // ============================================================================
 
 export async function getAllCategoriesFromDb() {
-  try {
-    const existing = await db.select().from(categories);
-    if (existing.length === 0) {
-      await db.insert(categories).values(SEED_CATEGORIES).onConflictDoNothing();
-      return await db.select().from(categories);
+  if (isDbConnected !== false) {
+    try {
+      const existing = await db.select().from(categories);
+      if (existing.length === 0) {
+        await db.insert(categories).values(SEED_CATEGORIES).onConflictDoNothing();
+        return await db.select().from(categories);
+      }
+      isDbConnected = true;
+      return existing;
+    } catch (error) {
+      markDbOffline(error);
     }
-    return existing;
-  } catch (error) {
-    console.error('Database query failed in getAllCategoriesFromDb:', error);
-    throw new Error('Failed to load categories from database.', { cause: error });
   }
+
+  return [...memoryCategories];
 }
 
 export async function createCategoryInDb(data: {
@@ -1090,25 +1216,34 @@ export async function createCategoryInDb(data: {
   image?: string;
   active?: boolean;
 }) {
-  try {
-    const slug = slugify(data.name);
-    const id = `cat-${slug}-${Date.now().toString(36).slice(-3)}`;
-    const result = await db
-      .insert(categories)
-      .values({
-        id,
-        name: data.name.trim(),
-        slug,
-        description: data.description?.trim() || '',
-        image: data.image?.trim() || '',
-        active: data.active !== undefined ? Boolean(data.active) : true,
-      })
-      .returning();
-    return result[0];
-  } catch (error) {
-    console.error('Failed to create category in DB:', error);
-    throw new Error('Failed to create category.', { cause: error });
+  const slug = slugify(data.name);
+  const id = `cat-${slug}-${Date.now().toString(36).slice(-3)}`;
+  const newCat = {
+    id,
+    name: data.name.trim(),
+    slug,
+    description: data.description?.trim() || '',
+    image: data.image?.trim() || '',
+    active: data.active !== undefined ? Boolean(data.active) : true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  if (isDbConnected !== false) {
+    try {
+      const result = await db
+        .insert(categories)
+        .values(newCat)
+        .returning();
+      isDbConnected = true;
+      return result[0];
+    } catch (error) {
+      markDbOffline(error);
+    }
   }
+
+  memoryCategories.push(newCat);
+  return newCat;
 }
 
 export async function updateCategoryInDb(
@@ -1120,37 +1255,58 @@ export async function updateCategoryInDb(
     active: boolean;
   }>
 ) {
-  try {
-    const existingRows = await db.select().from(categories).where(eq(categories.id, id));
-    const existing = existingRows[0];
-    if (!existing) return null;
+  if (isDbConnected !== false) {
+    try {
+      const existingRows = await db.select().from(categories).where(eq(categories.id, id));
+      const existing = existingRows[0];
+      if (existing) {
+        const payload: Record<string, any> = {};
+        if (data.name !== undefined) {
+          payload.name = data.name.trim();
+          payload.slug = slugify(data.name);
+          if (data.name.trim() !== existing.name) {
+            await db
+              .update(products)
+              .set({ category: data.name.trim() })
+              .where(eq(products.category, existing.name));
+          }
+        }
+        if (data.description !== undefined) payload.description = data.description;
+        if (data.image !== undefined) payload.image = data.image;
+        if (data.active !== undefined) payload.active = Boolean(data.active);
 
-    const payload: Record<string, any> = {};
-    if (data.name !== undefined) {
-      payload.name = data.name.trim();
-      payload.slug = slugify(data.name);
-      // If category was renamed, also update products referencing the old category name
-      if (data.name.trim() !== existing.name) {
-        await db
-          .update(products)
-          .set({ category: data.name.trim() })
-          .where(eq(products.category, existing.name));
+        const updated = await db
+          .update(categories)
+          .set(payload)
+          .where(eq(categories.id, id))
+          .returning();
+        isDbConnected = true;
+        return updated[0] || null;
       }
+    } catch (error) {
+      markDbOffline(error);
     }
-    if (data.description !== undefined) payload.description = data.description;
-    if (data.image !== undefined) payload.image = data.image;
-    if (data.active !== undefined) payload.active = Boolean(data.active);
-
-    const updated = await db
-      .update(categories)
-      .set(payload)
-      .where(eq(categories.id, id))
-      .returning();
-    return updated[0] || null;
-  } catch (error) {
-    console.error('Failed to update category in DB:', error);
-    throw new Error('Failed to update category.', { cause: error });
   }
+
+  const idx = memoryCategories.findIndex((c) => c.id === id);
+  if (idx === -1) return null;
+  const existing = memoryCategories[idx];
+  if (data.name && data.name.trim() !== existing.name) {
+    memoryProducts.forEach((p) => {
+      if (p.category === existing.name) {
+        p.category = data.name!.trim();
+      }
+    });
+  }
+  const updated = {
+    ...existing,
+    ...data,
+    name: data.name ? data.name.trim() : existing.name,
+    slug: data.name ? slugify(data.name) : existing.slug,
+    updatedAt: new Date(),
+  };
+  memoryCategories[idx] = updated;
+  return updated;
 }
 
 export async function deleteCategoryFromDb(id: string): Promise<{
@@ -1158,35 +1314,52 @@ export async function deleteCategoryFromDb(id: string): Promise<{
   deactivated?: boolean;
   message: string;
 }> {
-  try {
-    const existingRows = await db.select().from(categories).where(eq(categories.id, id));
-    const existing = existingRows[0];
-    if (!existing) {
-      return { deleted: false, message: 'Category not found.' };
+  if (isDbConnected !== false) {
+    try {
+      const existingRows = await db.select().from(categories).where(eq(categories.id, id));
+      const existing = existingRows[0];
+      if (!existing) {
+        return { deleted: false, message: 'Category not found.' };
+      }
+
+      const associatedProducts = await db
+        .select()
+        .from(products)
+        .where(eq(products.category, existing.name));
+
+      if (associatedProducts.length > 0) {
+        await db.update(categories).set({ active: false }).where(eq(categories.id, id));
+        return {
+          deleted: false,
+          deactivated: true,
+          message: `Category "${existing.name}" is linked to ${associatedProducts.length} product(s). It has been deactivated instead of deleted to preserve product integrity.`,
+        };
+      }
+
+      await db.delete(categories).where(eq(categories.id, id));
+      isDbConnected = true;
+      return { deleted: true, message: `Category "${existing.name}" deleted.` };
+    } catch (error) {
+      markDbOffline(error);
     }
-
-    // Check if any products belong to this category
-    const associatedProducts = await db
-      .select()
-      .from(products)
-      .where(eq(products.category, existing.name));
-
-    if (associatedProducts.length > 0) {
-      // Do not delete a category that is still associated with products; deactivate it safely
-      await db.update(categories).set({ active: false }).where(eq(categories.id, id));
-      return {
-        deleted: false,
-        deactivated: true,
-        message: `Category "${existing.name}" is linked to ${associatedProducts.length} product(s). It has been deactivated instead of deleted to preserve product integrity.`,
-      };
-    }
-
-    await db.delete(categories).where(eq(categories.id, id));
-    return { deleted: true, message: `Category "${existing.name}" deleted.` };
-  } catch (error) {
-    console.error('Failed to delete category from DB:', error);
-    throw new Error('Failed to delete category.', { cause: error });
   }
+
+  const idx = memoryCategories.findIndex((c) => c.id === id);
+  if (idx === -1) {
+    return { deleted: false, message: 'Category not found.' };
+  }
+  const existing = memoryCategories[idx];
+  const associatedCount = memoryProducts.filter((p) => p.category === existing.name).length;
+  if (associatedCount > 0) {
+    existing.active = false;
+    return {
+      deleted: false,
+      deactivated: true,
+      message: `Category "${existing.name}" is linked to ${associatedCount} product(s). It has been deactivated instead of deleted to preserve product integrity.`,
+    };
+  }
+  memoryCategories.splice(idx, 1);
+  return { deleted: true, message: `Category "${existing.name}" deleted.` };
 }
 
 // ============================================================================
@@ -1194,37 +1367,25 @@ export async function deleteCategoryFromDb(id: string): Promise<{
 // ============================================================================
 
 export async function getBusinessSettingsFromDb() {
-  try {
-    const rows = await db.select().from(businessSettings).where(eq(businessSettings.id, 1));
-    if (rows.length === 0) {
-      const inserted = await db
-        .insert(businessSettings)
-        .values({
-          id: 1,
-          businessName: 'MetaPro Enterprises',
-          whatsAppNumber: '917666323894',
-          businessPhone: '7666323894',
-          businessEmail: 'pdheeraj351@gmail.com',
-          businessAddress:
-            'Pili Nadi, Sunday Market, Plot No. 02, Kamptee Road, Nagpur, Maharashtra 440026, India',
-          heroHeadline: 'Materials That Shape Better Spaces.',
-          heroSubheadline:
-            'Explore interior materials, architectural wall & ceiling panels, and precision fixing hardware from MetaPro Enterprises.',
-          aboutText:
-            'MetaPro Enterprises supplies interior materials, architectural wall and ceiling panels, and installation fasteners for customers working on homes, offices, commercial spaces, and interior renovation projects.',
-          instagramUrl: '',
-          facebookUrl: '',
-          youtubeUrl: '',
-          linkedinUrl: '',
-        })
-        .returning();
-      return inserted[0];
+  if (isDbConnected !== false) {
+    try {
+      const rows = await db.select().from(businessSettings).where(eq(businessSettings.id, 1));
+      if (rows.length === 0) {
+        const inserted = await db
+          .insert(businessSettings)
+          .values(memoryBusinessSettings)
+          .returning();
+        isDbConnected = true;
+        return inserted[0];
+      }
+      isDbConnected = true;
+      return rows[0];
+    } catch (error) {
+      markDbOffline(error);
     }
-    return rows[0];
-  } catch (error) {
-    console.error('Failed to load business settings from DB:', error);
-    throw new Error('Failed to load business settings.', { cause: error });
   }
+
+  return { ...memoryBusinessSettings };
 }
 
 export async function updateBusinessSettingsInDb(
@@ -1243,40 +1404,45 @@ export async function updateBusinessSettingsInDb(
     linkedinUrl: string;
   }>
 ) {
-  try {
-    await getBusinessSettingsFromDb(); // Ensure row 1 exists
-    const payload: Record<string, any> = { updatedAt: new Date() };
-    if (data.businessName !== undefined) payload.businessName = data.businessName.trim();
-    if (data.whatsAppNumber !== undefined)
-      payload.whatsAppNumber = data.whatsAppNumber.replace(/[^0-9]/g, '');
-    if (data.businessPhone !== undefined) payload.businessPhone = data.businessPhone.trim();
-    if (data.businessEmail !== undefined) payload.businessEmail = data.businessEmail.trim();
-    if (data.businessAddress !== undefined) payload.businessAddress = data.businessAddress.trim();
-    if (data.heroHeadline !== undefined) payload.heroHeadline = data.heroHeadline.trim();
-    if (data.heroSubheadline !== undefined) payload.heroSubheadline = data.heroSubheadline.trim();
-    if (data.aboutText !== undefined) payload.aboutText = data.aboutText.trim();
-    if (data.instagramUrl !== undefined) payload.instagramUrl = data.instagramUrl.trim();
-    if (data.facebookUrl !== undefined) payload.facebookUrl = data.facebookUrl.trim();
-    if (data.youtubeUrl !== undefined) payload.youtubeUrl = data.youtubeUrl.trim();
-    if (data.linkedinUrl !== undefined) payload.linkedinUrl = data.linkedinUrl.trim();
+  if (isDbConnected !== false) {
+    try {
+      await getBusinessSettingsFromDb();
+      const payload: Record<string, any> = { updatedAt: new Date() };
+      if (data.businessName !== undefined) payload.businessName = data.businessName.trim();
+      if (data.whatsAppNumber !== undefined)
+        payload.whatsAppNumber = data.whatsAppNumber.replace(/[^0-9]/g, '');
+      if (data.businessPhone !== undefined) payload.businessPhone = data.businessPhone.trim();
+      if (data.businessEmail !== undefined) payload.businessEmail = data.businessEmail.trim();
+      if (data.businessAddress !== undefined) payload.businessAddress = data.businessAddress.trim();
+      if (data.heroHeadline !== undefined) payload.heroHeadline = data.heroHeadline.trim();
+      if (data.heroSubheadline !== undefined) payload.heroSubheadline = data.heroSubheadline.trim();
+      if (data.aboutText !== undefined) payload.aboutText = data.aboutText.trim();
+      if (data.instagramUrl !== undefined) payload.instagramUrl = data.instagramUrl.trim();
+      if (data.facebookUrl !== undefined) payload.facebookUrl = data.facebookUrl.trim();
+      if (data.youtubeUrl !== undefined) payload.youtubeUrl = data.youtubeUrl.trim();
+      if (data.linkedinUrl !== undefined) payload.linkedinUrl = data.linkedinUrl.trim();
 
-    const updated = await db
-      .update(businessSettings)
-      .set(payload)
-      .where(eq(businessSettings.id, 1))
-      .returning();
-    return updated[0];
-  } catch (error) {
-    console.error('Failed to update business settings in DB:', error);
-    throw new Error('Failed to update business settings.', { cause: error });
+      const updated = await db
+        .update(businessSettings)
+        .set(payload)
+        .where(eq(businessSettings.id, 1))
+        .returning();
+      isDbConnected = true;
+      if (updated.length > 0) return updated[0];
+    } catch (error) {
+      markDbOffline(error);
+    }
   }
+
+  Object.assign(memoryBusinessSettings, data, { updatedAt: new Date() });
+  return { ...memoryBusinessSettings };
 }
 
 // ============================================================================
-// ADMIN AUTHENTICATION REPOSITORY (PBKDF2-SHA512 Hashed Passwords in PostgreSQL)
+// ADMIN AUTHENTICATION REPOSITORY (PBKDF2-SHA512 Hashed Passwords)
 // ============================================================================
 
-const TOKEN_SECRET = process.env.ADMIN_TOKEN_SECRET || '';
+const TOKEN_SECRET = process.env.ADMIN_TOKEN_SECRET || 'metapro-default-admin-secret-2026';
 
 export function hashPassword(password: string, salt: string): string {
   return crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
@@ -1315,42 +1481,73 @@ export function verifyAdminToken(token?: string): { valid: boolean; username?: s
 }
 
 export async function ensureDefaultAdminUser() {
-  try {
-    const existing = await db.select().from(adminUsers);
-    if (existing.length === 0) {
-      const initialUser = process.env.ADMIN_INITIAL_USER || 'admin';
-      const initialEmail = process.env.ADMIN_INITIAL_EMAIL || 'pdheeraj351@gmail.com';
-      const initialPass = process.env.ADMIN_INITIAL_PASSWORD || '';
-      const salt = crypto.randomBytes(16).toString('hex');
-      const passwordHash = hashPassword(initialPass, salt);
-      await db.insert(adminUsers).values({
-        username: initialUser,
-        email: initialEmail,
-        passwordHash,
-        salt,
-      });
+  const initialUser = process.env.ADMIN_INITIAL_USER || 'admin';
+  const initialEmail = process.env.ADMIN_INITIAL_EMAIL || 'pdheeraj351@gmail.com';
+  const initialPass = process.env.ADMIN_INITIAL_PASSWORD || 'admin123';
+
+  if (memoryAdminUsers.length === 0) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const passwordHash = hashPassword(initialPass, salt);
+    memoryAdminUsers.push({
+      id: 1,
+      username: initialUser,
+      email: initialEmail,
+      passwordHash,
+      salt,
+    });
+  }
+
+  if (isDbConnected !== false) {
+    try {
+      const existing = await db.select().from(adminUsers);
+      if (existing.length === 0) {
+        const salt = crypto.randomBytes(16).toString('hex');
+        const passwordHash = hashPassword(initialPass, salt);
+        await db.insert(adminUsers).values({
+          username: initialUser,
+          email: initialEmail,
+          passwordHash,
+          salt,
+        });
+      }
+      isDbConnected = true;
+    } catch (error) {
+      markDbOffline(error);
     }
-  } catch (error) {
-    console.warn('Could not seed default admin user:', error);
   }
 }
 
 export async function authenticateAdminInDb(identifier: string, password: string) {
   await ensureDefaultAdminUser();
   const cleanId = identifier.trim().toLowerCase();
-  const allAdmins = await db.select().from(adminUsers);
-  const matched = allAdmins.find(
+
+  if (isDbConnected !== false) {
+    try {
+      const allAdmins = await db.select().from(adminUsers);
+      const matched = allAdmins.find(
+        (u) => u.username.toLowerCase() === cleanId || u.email.toLowerCase() === cleanId
+      );
+      if (matched) {
+        const computedHash = hashPassword(password, matched.salt);
+        if (computedHash === matched.passwordHash) {
+          const token = createAdminToken(matched.username);
+          return { username: matched.username, email: matched.email, token };
+        }
+        return null;
+      }
+    } catch (error) {
+      markDbOffline(error);
+    }
+  }
+
+  const matched = memoryAdminUsers.find(
     (u) => u.username.toLowerCase() === cleanId || u.email.toLowerCase() === cleanId
   );
   if (!matched) return null;
   const computedHash = hashPassword(password, matched.salt);
   if (computedHash !== matched.passwordHash) return null;
   const token = createAdminToken(matched.username);
-  return {
-    username: matched.username,
-    email: matched.email,
-    token,
-  };
+  return { username: matched.username, email: matched.email, token };
 }
 
 // ============================================================================
@@ -1366,32 +1563,55 @@ export async function createEnquiryInDb(data: {
   items: { productId: string; name: string; quantity: number; unit?: string }[];
   notes?: string;
 }) {
-  try {
-    const result = await db
-      .insert(enquiries)
-      .values({
-        userUid: data.userUid || null,
-        customerName: data.customerName || 'Showroom Visitor',
-        customerPhone: data.customerPhone || 'WhatsApp Enquiry',
-        customerEmail: data.customerEmail || null,
-        projectType: data.projectType || 'Interior Project',
-        items: data.items,
-        notes: data.notes || null,
-        status: 'New',
-      })
-      .returning();
-    return result[0];
-  } catch (error) {
-    console.error('Database insert failed in createEnquiryInDb:', error);
-    throw new Error('Failed to record enquiry.', { cause: error });
+  if (isDbConnected !== false) {
+    try {
+      const result = await db
+        .insert(enquiries)
+        .values({
+          userUid: data.userUid || null,
+          customerName: data.customerName || 'Showroom Visitor',
+          customerPhone: data.customerPhone || 'WhatsApp Enquiry',
+          customerEmail: data.customerEmail || null,
+          projectType: data.projectType || 'Interior Project',
+          items: data.items,
+          notes: data.notes || null,
+          status: 'New',
+        })
+        .returning();
+      isDbConnected = true;
+      return result[0];
+    } catch (error) {
+      markDbOffline(error);
+    }
   }
+
+  const memoryEnquiry = {
+    id: memoryEnquiries.length + 1,
+    userUid: data.userUid || null,
+    customerName: data.customerName || 'Showroom Visitor',
+    customerPhone: data.customerPhone || 'WhatsApp Enquiry',
+    customerEmail: data.customerEmail || null,
+    projectType: data.projectType || 'Interior Project',
+    items: data.items,
+    notes: data.notes || null,
+    status: 'New',
+    createdAt: new Date(),
+  };
+
+  memoryEnquiries.unshift(memoryEnquiry);
+  return memoryEnquiry;
 }
 
 export async function getAllEnquiriesFromDb() {
-  try {
-    return await db.select().from(enquiries).orderBy(desc(enquiries.createdAt));
-  } catch (error) {
-    console.error('Database query failed in getAllEnquiriesFromDb:', error);
-    throw new Error('Failed to load enquiries.', { cause: error });
+  if (isDbConnected !== false) {
+    try {
+      const list = await db.select().from(enquiries).orderBy(desc(enquiries.createdAt));
+      isDbConnected = true;
+      return list;
+    } catch (error) {
+      markDbOffline(error);
+    }
   }
+
+  return [...memoryEnquiries];
 }

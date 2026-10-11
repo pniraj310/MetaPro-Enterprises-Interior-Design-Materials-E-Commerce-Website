@@ -8,6 +8,7 @@ import {
 } from '../types/product';
 import { MATERIAL_IMAGES, resolveMaterialImage } from '../assets/materialImages';
 import { getStoredAdminToken } from '../context/AuthContext';
+import { apiUrl, getAuthHeaders } from './api';
 
 export const DEFAULT_WHATSAPP_NUMBER = '917666323894';
 
@@ -723,11 +724,7 @@ export const INITIAL_PRODUCTS: Product[] = [
 ];
 
 function getAdminHeaders(): HeadersInit {
-  const token = getStoredAdminToken();
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
+  return getAuthHeaders();
 }
 
 export function normalizeProductRow(row: any): Product {
@@ -776,7 +773,7 @@ export const productService = {
   // ============================================================================
 
   async fetchAllFromApi(): Promise<Product[]> {
-    const res = await fetch('/api/products');
+    const res = await fetch(apiUrl('/api/products'));
     if (!res.ok) {
       throw new Error(`Failed to fetch products: HTTP ${res.status}`);
     }
@@ -786,14 +783,14 @@ export const productService = {
   },
 
   async fetchByIdOrSlugFromApi(idOrSlug: string): Promise<Product | null> {
-    const res = await fetch(`/api/products/${encodeURIComponent(idOrSlug)}`);
+    const res = await fetch(apiUrl(`/api/products/${encodeURIComponent(idOrSlug)}`));
     if (!res.ok) return null;
     const row = await res.json();
     return normalizeProductRow(row);
   },
 
   async createInApi(data: ProductFormData): Promise<Product> {
-    const res = await fetch('/api/products', {
+    const res = await fetch(apiUrl('/api/products'), {
       method: 'POST',
       headers: getAdminHeaders(),
       body: JSON.stringify(data),
@@ -807,7 +804,7 @@ export const productService = {
   },
 
   async updateInApi(id: string, data: Partial<ProductFormData>): Promise<Product> {
-    const res = await fetch(`/api/products/${encodeURIComponent(id)}`, {
+    const res = await fetch(apiUrl(`/api/products/${encodeURIComponent(id)}`), {
       method: 'PUT',
       headers: getAdminHeaders(),
       body: JSON.stringify(data),
@@ -821,7 +818,7 @@ export const productService = {
   },
 
   async deleteFromApi(id: string): Promise<boolean> {
-    const res = await fetch(`/api/products/${encodeURIComponent(id)}`, {
+    const res = await fetch(apiUrl(`/api/products/${encodeURIComponent(id)}`), {
       method: 'DELETE',
       headers: getAdminHeaders(),
     });
@@ -829,7 +826,7 @@ export const productService = {
   },
 
   async toggleAvailabilityInApi(id: string): Promise<Product> {
-    const res = await fetch(`/api/products/${encodeURIComponent(id)}/availability`, {
+    const res = await fetch(apiUrl(`/api/products/${encodeURIComponent(id)}/availability`), {
       method: 'PATCH',
       headers: getAdminHeaders(),
     });
@@ -842,7 +839,7 @@ export const productService = {
   },
 
   async setFeaturedInApi(id: string): Promise<Product> {
-    const res = await fetch(`/api/products/${encodeURIComponent(id)}/featured`, {
+    const res = await fetch(apiUrl(`/api/products/${encodeURIComponent(id)}/featured`), {
       method: 'PATCH',
       headers: getAdminHeaders(),
     });
@@ -855,7 +852,7 @@ export const productService = {
   },
 
   async resetDefaultsInApi(): Promise<Product[]> {
-    const res = await fetch('/api/products/reset', {
+    const res = await fetch(apiUrl('/api/products/reset'), {
       method: 'POST',
       headers: getAdminHeaders(),
     });
@@ -869,7 +866,7 @@ export const productService = {
   // ============================================================================
 
   async fetchCategoriesFromApi(): Promise<CategoryItem[]> {
-    const res = await fetch('/api/categories');
+    const res = await fetch(apiUrl('/api/categories'));
     if (!res.ok) throw new Error('Failed to fetch categories');
     return await res.json();
   },
@@ -880,7 +877,7 @@ export const productService = {
     image?: string;
     active?: boolean;
   }): Promise<CategoryItem> {
-    const res = await fetch('/api/categories', {
+    const res = await fetch(apiUrl('/api/categories'), {
       method: 'POST',
       headers: getAdminHeaders(),
       body: JSON.stringify(data),
@@ -896,7 +893,7 @@ export const productService = {
     id: string,
     data: Partial<CategoryItem>
   ): Promise<CategoryItem> {
-    const res = await fetch(`/api/categories/${encodeURIComponent(id)}`, {
+    const res = await fetch(apiUrl(`/api/categories/${encodeURIComponent(id)}`), {
       method: 'PUT',
       headers: getAdminHeaders(),
       body: JSON.stringify(data),
@@ -913,7 +910,7 @@ export const productService = {
     deactivated?: boolean;
     message: string;
   }> {
-    const res = await fetch(`/api/categories/${encodeURIComponent(id)}`, {
+    const res = await fetch(apiUrl(`/api/categories/${encodeURIComponent(id)}`), {
       method: 'DELETE',
       headers: getAdminHeaders(),
     });
@@ -928,7 +925,7 @@ export const productService = {
   // ============================================================================
 
   async fetchSettingsFromApi(): Promise<BusinessSettingsData> {
-    const res = await fetch('/api/settings');
+    const res = await fetch(apiUrl('/api/settings'));
     if (!res.ok) return currentSettingsCache;
     const data = await res.json();
     currentSettingsCache = { ...DEFAULT_BUSINESS_SETTINGS, ...data };
@@ -938,7 +935,7 @@ export const productService = {
   async updateSettingsInApi(
     data: Partial<BusinessSettingsData>
   ): Promise<BusinessSettingsData> {
-    const res = await fetch('/api/settings', {
+    const res = await fetch(apiUrl('/api/settings'), {
       method: 'PUT',
       headers: getAdminHeaders(),
       body: JSON.stringify(data),
@@ -998,7 +995,7 @@ export const productService = {
           price: it.product.price,
         })),
       };
-      const res = await fetch('/api/enquiries', {
+      const res = await fetch(apiUrl('/api/enquiries'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -1014,7 +1011,9 @@ export const productService = {
 
   async fetchEnquiriesFromApi(): Promise<EnquiryRecord[]> {
     try {
-      const res = await fetch('/api/enquiries');
+      const res = await fetch(apiUrl('/api/enquiries'), {
+        headers: getAdminHeaders(),
+      });
       if (res.ok) {
         return await res.json();
       }

@@ -7,15 +7,35 @@ declare global {
   var _postgresPool: Pool | undefined;
 }
 
+export const getResolvedDatabaseUrl = (): string | undefined => {
+  let url = process.env.DATABASE_URL;
+  if (!url) return undefined;
+
+  // When running outside Render's internal network (e.g., in AI Studio dev environment),
+  // internal Render hostnames (dpg-xxxx-a) must be resolved to their external hostname.
+  if (url.includes('@dpg-') && !url.includes('.render.com')) {
+    url = url.replace(/@(dpg-[a-z0-9]+-[a-z0-9]+)(\/|\?|$)/, '@$1.oregon-postgres.render.com$2');
+  }
+
+  return url;
+};
+
 export const createPool = () => {
   if (!global._postgresPool) {
-    const databaseUrl = process.env.DATABASE_URL;
+    const databaseUrl = getResolvedDatabaseUrl();
+    const isRemote = Boolean(
+      databaseUrl &&
+        (databaseUrl.includes('.render.com') ||
+          databaseUrl.includes('ssl=true') ||
+          !databaseUrl.includes('localhost'))
+    );
 
     global._postgresPool = databaseUrl
       ? new Pool({
           connectionString: databaseUrl,
           max: 10,
-          connectionTimeoutMillis: 15000,
+          connectionTimeoutMillis: 5000,
+          ssl: isRemote ? { rejectUnauthorized: false } : undefined,
         })
       : new Pool({
           host: process.env.SQL_HOST || 'localhost',
@@ -26,11 +46,12 @@ export const createPool = () => {
           password: process.env.SQL_PASSWORD || '1234',
           database: process.env.SQL_DB_NAME || 'metapro_db',
           max: 10,
-          connectionTimeoutMillis: 15000,
+          connectionTimeoutMillis: 2000,
         });
 
     global._postgresPool.on('error', (err) => {
-      console.error('Unexpected error on idle SQL pool client:', err);
+      // Don't crash process on pool client error
+      console.warn('PostgreSQL pool connection event:', err.message);
     });
   }
 

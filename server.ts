@@ -187,6 +187,25 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
+  // Enable CORS for Vercel production frontend, custom domains, and local development
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Razorpay-Signature, X-Razorpay-Event-Id');
+
+    if (req.method === 'OPTIONS') {
+      res.sendStatus(204);
+      return;
+    }
+    next();
+  });
+
   // Capture rawBody for cryptographic webhook HMAC verification
   app.use(
     express.json({
@@ -222,6 +241,16 @@ async function startServer() {
       return;
     }
     next();
+  };
+
+  // Server-side admin email allowlist (Owner & authorized admins only)
+  const getAdminAllowlist = (): string[] => {
+    const rawList = process.env.ADMIN_ALLOWED_EMAILS || process.env.ADMIN_INITIAL_EMAIL || 'pdheeraj351@gmail.com';
+    return rawList
+      .toLowerCase()
+      .split(',')
+      .map((e) => e.trim())
+      .filter(Boolean);
   };
 
   // =========================================================================
@@ -264,16 +293,30 @@ async function startServer() {
         res.status(400).json({ error: 'Invalid user token payload' });
         return;
       }
+      const email = req.user.email.toLowerCase();
       const user = await getOrCreateUser(req.user.uid, req.user.email, req.user.name);
-      const adminToken = createAdminToken(req.user.email);
-      res.json({ user, adminToken });
+      
+      // Strict Server-Side Authorization: only issue admin token if email is in the allowlist
+      const allowlist = getAdminAllowlist();
+      const isOwnerAdmin = allowlist.includes(email);
+
+      let adminToken: string | null = null;
+      if (isOwnerAdmin) {
+        adminToken = createAdminToken(req.user.email);
+      }
+
+      res.json({
+        user,
+        isAdmin: isOwnerAdmin,
+        adminToken,
+      });
     } catch (error: any) {
       console.error('Failed to sync user:', error);
       res.status(500).json({ error: error.message || 'Failed to synchronize user' });
     }
   });
 
-  app.get('/api/users', requireAuth, async (_req: AuthRequest, res: Response) => {
+  app.get('/api/users', requireAdmin, async (_req: Request, res: Response) => {
     try {
       const allUsers = await getUsers();
       res.json(allUsers);
@@ -486,7 +529,7 @@ async function startServer() {
     }
   });
 
-  app.get('/api/enquiries', async (_req: Request, res: Response) => {
+  app.get('/api/enquiries', requireAdmin, async (_req: Request, res: Response) => {
     try {
       const list = await getAllEnquiriesFromDb();
       res.json(list);
@@ -837,9 +880,9 @@ async function startServer() {
 
   /**
    * GET /api/admin/payments
-   * Admin portal endpoint: returns payments list with filter & search capabilities
+   * Admin portal endpoint: returns payments list with filter & search capabilities (Protected)
    */
-  app.get('/api/admin/payments', (req: Request, res: Response) => {
+  app.get('/api/admin/payments', requireAdmin, (req: Request, res: Response) => {
     try {
       const { status, search } = req.query;
       let payments = loadPayments();
@@ -885,9 +928,9 @@ async function startServer() {
 
   /**
    * POST /api/admin/payments/:id/refund
-   * Initiates a real Razorpay server-side refund if live credentials exist, or logs refund in database.
+   * Initiates a real Razorpay server-side refund if live credentials exist, or logs refund in database (Protected)
    */
-  app.post('/api/admin/payments/:id/refund', async (req: Request, res: Response) => {
+  app.post('/api/admin/payments/:id/refund', requireAdmin, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
       const { reason = 'Customer requested cancellation / material return', amount } = req.body;
@@ -971,9 +1014,9 @@ async function startServer() {
 
   /**
    * GET /api/admin/payment-settings
-   * Admin payment settings status (Never exposes secret key)
+   * Admin payment settings status (Never exposes secret key - Protected)
    */
-  app.get('/api/admin/payment-settings', (req: Request, res: Response) => {
+  app.get('/api/admin/payment-settings', requireAdmin, (req: Request, res: Response) => {
     const keyId = process.env.RAZORPAY_KEY_ID;
     const isConfigured = !!(keyId && process.env.RAZORPAY_KEY_SECRET);
     const isWebhookConfigured = !!process.env.RAZORPAY_WEBHOOK_SECRET;
@@ -1281,22 +1324,16 @@ Respond with expert recommendations matching the MetaPro catalog in strict JSON 
     }
   });
 
-  // Mount Vite middleware in development, or serve dist in production / Cloud Run
+  // Serve static dist in production / container or if dist/index.html exists and NODE_ENV !== 'development'
   const distDir = path.resolve(__dirname, 'dist');
   const distIndexHtml = path.resolve(distDir, 'index.html');
-  const isProduction =
-    process.env.NODE_ENV === 'production' ||
-    Boolean(process.env.K_SERVICE) ||
-    (fs.existsSync(distIndexHtml) && process.env.npm_lifecycle_event !== 'dev');
+  const hasDist = fs.existsSync(distIndexHtml);
+  const isProduction = process.env.NODE_ENV === 'production' || (hasDist && process.env.NODE_ENV !== 'development');
 
-  if (isProduction) {
+  if (isProduction && hasDist) {
     app.use(express.static(distDir));
     app.get('*', (_req: Request, res: Response) => {
-      if (fs.existsSync(distIndexHtml)) {
-        res.sendFile(distIndexHtml);
-      } else {
-        res.status(200).send('MetaPro Enterprises Server Running');
-      }
+      res.sendFile(distIndexHtml);
     });
   } else {
     const { createServer: createViteServer } = await import('vite');
@@ -1305,6 +1342,22 @@ Respond with expert recommendations matching the MetaPro catalog in strict JSON 
       appType: 'spa',
     });
     app.use(vite.middlewares);
+    app.use('*', async (req: Request, res: Response, next: express.NextFunction) => {
+      const url = req.originalUrl;
+      try {
+        const rootIndexHtml = path.resolve(__dirname, 'index.html');
+        if (fs.existsSync(rootIndexHtml)) {
+          let template = fs.readFileSync(rootIndexHtml, 'utf-8');
+          template = await vite.transformIndexHtml(url, template);
+          res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+          return;
+        }
+        next();
+      } catch (e: any) {
+        vite.ssrFixStacktrace(e as Error);
+        next(e);
+      }
+    });
   }
 
   app.listen(PORT, '0.0.0.0', () => {

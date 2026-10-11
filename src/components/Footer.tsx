@@ -41,7 +41,8 @@ export const Footer: React.FC = () => {
   ].filter(Boolean) as { label: string; url: string; icon: React.FC<any> }[];
 
   const scrollToTop = () => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: 0, behavior: prefersReducedMotion ? 'auto' : 'smooth' });
   };
 
   const directWhatsAppUrl = `https://wa.me/${whatsAppNumber}?text=${encodeURIComponent(
@@ -180,11 +181,6 @@ export const Footer: React.FC = () => {
                 <li>
                   <Link to="/contact" className="hover:text-white hover:underline transition-colors">
                     Showroom Working Hours
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/admin/login" className="hover:text-white hover:underline transition-colors">
-                    Admin Panel Login
                   </Link>
                 </li>
               </ul>

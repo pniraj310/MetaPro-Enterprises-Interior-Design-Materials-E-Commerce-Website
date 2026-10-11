@@ -28,10 +28,13 @@ import { AdminSettings } from './pages/admin/AdminSettings';
 // Fallback Page
 import { NotFound } from './pages/NotFound';
 
+import { RouteScrollRestoration } from './components/RouteScrollRestoration';
+
 export default function App() {
   return (
     <HelmetProvider>
       <BrowserRouter>
+        <RouteScrollRestoration />
         <AuthProvider>
         <ProductProvider>
           <CartProvider>
